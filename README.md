@@ -14,7 +14,7 @@ It was extracted from a production content pipeline that has published several h
 - Create or update posts in a single call (`/publish`) — title, content, excerpt, slug, status (`publish` / `draft` / `pending` / `private`), author, featured image.
 - **Hierarchical categories by path** — send `"Japan > Kyoto > Gion"` and missing levels are created automatically.
 - Tags, and **Yoast SEO** fields (title, description, focus keyword, canonical, Open Graph title / description / image). These are harmless no-ops when Yoast is not installed.
-- Gutenberg / custom HTML is saved **as-is** (the API key is the trust boundary, so `kses` does not strip inline styles or custom blocks).
+- Content goes through WordPress's `kses` filter by default (no `<script>`). Opt in to raw Gutenberg / custom HTML with `GENAI_MCP_ALLOW_UNFILTERED_HTML` (the key then equals admin power).
 - **Polylang translations** — pass `lang` and `translation_of` and the post is assigned a language and linked into the source post's translation group.
 - Delete posts (`/delete`).
 
@@ -50,14 +50,14 @@ It was extracted from a production content pipeline that has published several h
 4. Verify:
    ```bash
    curl -s -H "X-API-Key: YOUR_KEY" https://your-site.example/wp-json/article-publisher/v1/validate
-   # {"valid":true,"version":"1.0.0"}
+   # {"valid":true,"version":"1.0.1"}
    ```
 
 > **Use HTTPS.** The API key travels in a header; anyone who has it can publish and delete content.
 
 ## Authentication
 
-Every endpoint requires the header `X-API-Key: <key>`. A missing or wrong key returns `401`. If no key is configured, every call returns `401` (the plugin is closed by default).
+Every endpoint requires the header `X-API-Key: <key>`. A missing or wrong key returns `401`. A random key is **generated automatically when you activate the plugin**: open *Settings → GenAI MCP x WordPress* to copy it (or click "Generate new key" and save to rotate it). You can instead define `ARTICLE_PUBLISHER_API_KEY` in `wp-config.php`, which overrides it. If no key is configured, every call returns `401` (the plugin is closed by default).
 
 ## Quick start (with Claude)
 
@@ -163,7 +163,7 @@ Base URL: `https://your-site.example/wp-json/article-publisher/v1`
 | Field | Type | Notes |
 |---|---|---|
 | `post_id` | int | Present → update this post. Absent → create (needs `title` and `content`). |
-| `title`, `content`, `excerpt` | string | `content` is saved without kses filtering. |
+| `title`, `content`, `excerpt` | string | `content` is kses-filtered by default (see `GENAI_MCP_ALLOW_UNFILTERED_HTML`). |
 | `slug` | string | Sanitized. |
 | `status` | string | `publish`, `draft`, `pending`, `private`. New posts default to `draft`. |
 | `author` | int | Must be an existing user id. |
@@ -226,7 +226,7 @@ Follow the [Quick start](#quick-start-with-claude): install the plugin, install 
 Optional hardening: in Claude Code allow only the helper script, for example the permission rule `Bash(~/.claude/skills/wordpress-publish/scripts/wp.sh:*)`, so every other command still asks first. The helper can also be used on its own:
 
 ```bash
-~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.1"}
 ```
 
 Commands: `validate`, `publish post.json`, `sideload <image-url> [alt]`, `categories`, `term-meta meta.json`, `delete <post_id>`.
@@ -255,6 +255,7 @@ Define in `wp-config.php`:
 |---|---|---|
 | `ARTICLE_PUBLISHER_API_KEY` | — | API key. Overrides the value saved in Settings. |
 | `GENAI_MCP_ENABLE_MAINTENANCE` | off | Registers the maintenance endpoints below. |
+| `GENAI_MCP_ALLOW_UNFILTERED_HTML` | off | Skips kses on `/publish` so raw HTML / inline styles are stored. The key can then store scripts: treat it as admin. |
 | `GENAI_MCP_DISABLE_INTERMEDIATE_SIZES` | off | Stops generating `thumbnail`, `medium`, `medium_large`, `large` for new uploads. |
 
 ## Maintenance endpoints (opt-in)
@@ -266,7 +267,7 @@ Available only when `GENAI_MCP_ENABLE_MAINTENANCE` is `true`. These delete or re
 ## Security notes
 
 - The API key is the only credential. Treat it like an admin password: long random value, HTTPS only, stored in `wp-config.php` or an environment variable, rotated if leaked.
-- `/publish` saves HTML without kses filtering and `/delete` deletes permanently by default (`"force": false` moves to trash). Only give the key to systems you trust.
+- `/publish` keeps WordPress's kses filtering by default. If you need raw HTML (inline styles, custom blocks), set `define('GENAI_MCP_ALLOW_UNFILTERED_HTML', true);` — then the key can store scripts, so it is effectively an admin account. `/delete` deletes permanently by default (`"force": false` moves to trash) and only works on posts. Only give the key to systems you trust.
 - Restrict the endpoints at your web server / WAF (IP allow-list) if the caller has a fixed address.
 - Maintenance endpoints are disabled unless you opt in.
 

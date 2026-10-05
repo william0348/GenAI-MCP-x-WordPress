@@ -14,7 +14,7 @@
 - 一次呼叫（`/publish`）建立或更新文章：標題、內容、摘要、網址代稱（slug）、狀態（`publish`／`draft`／`pending`／`private`）、作者、精選圖片。
 - **用路徑指定階層分類**：傳 `"日本 > 京都 > 祇園"`，缺少的層級會自動建立。
 - 標籤，以及 **Yoast SEO** 欄位（標題、描述、焦點關鍵字、canonical、Open Graph 標題／描述／圖片）。沒安裝 Yoast 時這些欄位只是不起作用，不會出錯。
-- Gutenberg／自訂 HTML **原樣儲存**（API 金鑰就是信任邊界，所以不會被 kses 濾掉行內樣式或自訂區塊）。
+- 內容預設經過 WordPress 的 kses 過濾（防止寫入 `<script>`）。需要原樣保留行內樣式或自訂區塊時，在 `wp-config.php` 加 `define('GENAI_MCP_ALLOW_UNFILTERED_HTML', true);`，此時金鑰等同管理員權限。
 - **Polylang 多語翻譯**：傳入 `lang` 與 `translation_of`，文章會被指定語言並連結到來源文章的翻譯群組。
 - 刪除文章（`/delete`）。
 
@@ -50,14 +50,14 @@
 4. 驗證：
    ```bash
    curl -s -H "X-API-Key: 你的金鑰" https://你的網站/wp-json/article-publisher/v1/validate
-   # {"valid":true,"version":"1.0.0"}
+   # {"valid":true,"version":"1.0.1"}
    ```
 
 > **請使用 HTTPS。** API 金鑰放在標頭裡傳送；拿到金鑰的人就能發布與刪除內容。
 
 ## 驗證方式
 
-每個端點都要帶標頭 `X-API-Key: <金鑰>`。金鑰缺少或錯誤回 `401`。如果網站還沒設定金鑰，所有呼叫也都回 `401`（外掛預設是關閉的）。
+每個端點都要帶標頭 `X-API-Key: <金鑰>`。金鑰缺少或錯誤回 `401`。**啟用外掛時會自動產生一把隨機金鑰**：到「設定 → GenAI MCP x WordPress」複製即可（按「Generate new key」再儲存可更換）。也可以在 `wp-config.php` 定義 `ARTICLE_PUBLISHER_API_KEY`，它會優先於後台的值。如果網站完全沒有金鑰，所有呼叫都回 `401`（外掛預設是關閉的）。
 
 ## 快速開始（搭配 Claude）
 
@@ -163,7 +163,7 @@ curl -s -X POST https://你的網站/wp-json/article-publisher/v1/media/sideload
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `post_id` | int | 有帶 → 更新該篇；沒帶 → 建立（需要 `title` 與 `content`）。 |
-| `title`、`content`、`excerpt` | string | `content` 儲存時不經 kses 過濾。 |
+| `title`、`content`、`excerpt` | string | `content` 預設經 kses 過濾（可用 `GENAI_MCP_ALLOW_UNFILTERED_HTML` 關閉）。 |
 | `slug` | string | 會經過清理。 |
 | `status` | string | `publish`、`draft`、`pending`、`private`。新文章預設 `draft`。 |
 | `author` | int | 必須是存在的使用者 id。 |
@@ -226,7 +226,7 @@ API 金鑰請放在 MCP 伺服器的環境變數中（不要放進提示詞或�
 可選的加強：在 Claude Code 只允許這支輔助腳本，例如權限規則 `Bash(~/.claude/skills/wordpress-publish/scripts/wp.sh:*)`，其他指令仍然會先詢問你。這支腳本也能單獨使用：
 
 ```bash
-~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.1"}
 ```
 
 指令：`validate`、`publish post.json`、`sideload <圖片網址> [替代文字]`、`categories`、`term-meta meta.json`、`delete <post_id>`。
@@ -255,6 +255,7 @@ API 金鑰請放在 MCP 伺服器的環境變數中（不要放進提示詞或�
 |---|---|---|
 | `ARTICLE_PUBLISHER_API_KEY` | — | API 金鑰，會覆蓋設定頁儲存的值。 |
 | `GENAI_MCP_ENABLE_MAINTENANCE` | 關 | 註冊下方的維護端點。 |
+| `GENAI_MCP_ALLOW_UNFILTERED_HTML` | 關閉 | `/publish` 略過 kses，原樣儲存 HTML／行內樣式。此時金鑰可寫入腳本，請視同管理員。 |
 | `GENAI_MCP_DISABLE_INTERMEDIATE_SIZES` | 關 | 新上傳的圖片不再產生 `thumbnail`、`medium`、`medium_large`、`large`。 |
 
 ## 維護端點（需手動開啟）
@@ -266,7 +267,7 @@ API 金鑰請放在 MCP 伺服器的環境變數中（不要放進提示詞或�
 ## 安全注意事項
 
 - API 金鑰是唯一的憑證，請當成管理員密碼對待：使用長隨機值、只走 HTTPS、放在 `wp-config.php` 或環境變數、外洩就換新。
-- `/publish` 儲存 HTML 時不經 kses 過濾，`/delete` 預設是永久刪除（帶 `"force": false` 才會進垃圾桶）。只把金鑰交給你信任的系統。
+- `/publish` 預設保留 WordPress 的 kses 過濾；啟用 `GENAI_MCP_ALLOW_UNFILTERED_HTML` 後金鑰可寫入腳本，等同管理員。`/delete` 預設永久刪除（帶 `"force": false` 才會進垃圾桶），且只能刪除文章（post）。只把金鑰交給你信任的系統。
 - 如果呼叫端的 IP 固定，建議在網頁伺服器或 WAF 加上 IP 白名單。
 - 維護端點預設關閉，需要你主動開啟。
 

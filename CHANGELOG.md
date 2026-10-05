@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.1 — security hardening
+
+Found in a security review of 1.0.0. Upgrade recommended.
+
+- `/publish`: kses filtering is now **on by default** (a key holder could previously store `<script>` that runs in an administrator's session). Opt back in to raw HTML with `define('GENAI_MCP_ALLOW_UNFILTERED_HTML', true);`. Filters are always restored (`try/finally`).
+- `/publish` update and `/delete` only touch posts of type `post` (no pages, products, orders or menu items).
+- `/media/sideload`: URLs must resolve to public addresses (blocks 169.254.169.254 cloud metadata, IPv6 loopback/private, private ranges); download/upload errors no longer leak server paths or HTTP details.
+- `/media/restore-file` (maintenance): extension **allowlist** (jpg/png/gif/webp/avif), executable names rejected anywhere in the filename, content must be a real image.
+- Maintenance zip folders are now protected (`.htaccess`, `index.html`) and zip names carry a random token.
+- `/authors`: only users who can edit posts, no avatar (Gravatar hash) URLs.
+- `/term-meta`: only `category`/`post_tag` terms and allowlisted keys (`z_taxonomy_image`, `z_taxonomy_image_id`, `wpseo_*`; extend with the `genai_mcp_term_meta_keys` filter).
+- `/media/db-size` (maintenance): only this site's table prefix, no database name.
+- An API key is generated automatically on activation; the settings page has a "Generate new key" button.
+- Opt-in constants must be exactly `true` (the string `'false'` no longer enables them).
+
 ## 1.0.0
 First public release, extracted from a production content pipeline.
 

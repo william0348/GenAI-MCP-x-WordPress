@@ -3,7 +3,7 @@
  * Plugin Name: GenAI MCP x WordPress
  * Plugin URI:  https://github.com/william0348/GenAI-MCP-x-WordPress
  * Description: A secure REST bridge that lets AI agents (MCP servers, Claude, scripts) publish and manage WordPress content — posts with hierarchical categories, SEO meta and Polylang translations, media sideload/upload, category CRUD and term meta.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * Author: william0348
@@ -18,6 +18,7 @@
  *
  * Optional switches (define them in wp-config.php):
  *   define('GENAI_MCP_ENABLE_MAINTENANCE', true);        // register the destructive media-maintenance endpoints
+ *   define('GENAI_MCP_ALLOW_UNFILTERED_HTML', true);     // optional: skip kses so raw HTML/inline styles are kept (key = admin power)
  *   define('GENAI_MCP_DISABLE_INTERMEDIATE_SIZES', true); // stop WordPress generating thumbnail/medium/large sizes
  */
 
@@ -51,6 +52,13 @@ function apl_get_api_key() {
     }
     return (string) get_option('apl_api_key', '');
 }
+
+/** On activation, create a random API key if none exists (shown in Settings → GenAI MCP x WordPress). */
+register_activation_hook(__FILE__, function () {
+    if (get_option('apl_api_key', '') === '') {
+        update_option('apl_api_key', wp_generate_password(48, false), false);
+    }
+});
 
 /** Permission callback for every route. 401 on bad/missing key. */
 function apl_check_api_key(WP_REST_Request $request) {
@@ -89,7 +97,14 @@ function apl_render_settings_page() {
             <td>
               <input type="text" id="apl_api_key" name="apl_api_key" class="regular-text code"
                      value="<?php echo esc_attr(get_option('apl_api_key', '')); ?>" autocomplete="off" />
-              <p class="description">Use a long random string (32+ characters). Your AI agent / MCP server must send it in the X-API-Key header.</p>
+              <button type="button" class="button" id="apl_gen_key">Generate new key</button>
+              <script>
+              document.getElementById('apl_gen_key').addEventListener('click', function () {
+                var a = new Uint8Array(24); crypto.getRandomValues(a);
+                document.getElementById('apl_api_key').value = Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+              });
+              </script>
+              <p class="description">Created automatically when the plugin was activated. Click "Generate new key", then Save, to rotate it. Use a long random string (32+ characters). Your AI agent / MCP server must send it in the X-API-Key header.</p>
             </td>
           </tr>
         </table>
@@ -106,7 +121,40 @@ function apl_render_settings_page() {
 
 /** Maintenance endpoints delete/rewrite files on disk. They are OFF unless explicitly enabled in wp-config.php. */
 function apl_maintenance_enabled() {
-    return defined('GENAI_MCP_ENABLE_MAINTENANCE') && GENAI_MCP_ENABLE_MAINTENANCE;
+    return defined('GENAI_MCP_ENABLE_MAINTENANCE') && GENAI_MCP_ENABLE_MAINTENANCE === true;
+}
+
+/** Skipping kses lets the key holder store <script>/inline JS. OFF by default; opt in only if you accept that the key equals an admin account. */
+function apl_unfiltered_html_enabled() {
+    return defined('GENAI_MCP_ALLOW_UNFILTERED_HTML') && GENAI_MCP_ALLOW_UNFILTERED_HTML === true;
+}
+
+/** Make a plugin-created folder inside uploads non-browsable (zip backups etc.). */
+function apl_protect_dir($dir) {
+    if (!is_dir($dir)) wp_mkdir_p($dir);
+    if (!file_exists($dir . '/.htaccess')) @file_put_contents($dir . '/.htaccess', "Require all denied\nDeny from all\n");
+    if (!file_exists($dir . '/index.html')) @file_put_contents($dir . '/index.html', '');
+}
+
+/** Reject URLs that resolve to private, loopback, link-local or reserved addresses (SSRF guard). */
+function apl_url_is_public($url) {
+    $parts = wp_parse_url($url);
+    if (!$parts || empty($parts['host']) || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)) return false;
+    $host = trim($parts['host'], '[]');
+    $ips = [];
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        foreach ((array) @dns_get_record($host, DNS_A | DNS_AAAA) as $r) {
+            if (!empty($r['ip'])) $ips[] = $r['ip'];
+            if (!empty($r['ipv6'])) $ips[] = $r['ipv6'];
+        }
+    }
+    if (!$ips) return false;
+    foreach ($ips as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return false;
+    }
+    return true;
 }
 
 add_action('rest_api_init', function () {
@@ -172,7 +220,7 @@ add_action('rest_api_init', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function apl_route_validate() {
-    return ['valid' => true, 'version' => '1.0.0'];
+    return ['valid' => true, 'version' => '1.0.1'];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,7 +285,7 @@ function apl_route_publish(WP_REST_Request $request) {
     $post_id = isset($p['post_id']) ? (int) $p['post_id'] : 0;
     $is_update = $post_id > 0;
 
-    if ($is_update && !get_post($post_id)) {
+    if ($is_update && (!get_post($post_id) || get_post_type($post_id) !== 'post')) {
         return new WP_Error('post_not_found', "Post {$post_id} not found", ['status' => 404]);
     }
     if (!$is_update && (!isset($p['title']) || !isset($p['content']))) {
@@ -259,12 +307,16 @@ function apl_route_publish(WP_REST_Request $request) {
         $postarr['post_author'] = (int) $p['author'];
     }
 
-    // The API key is the trust boundary: don't let kses strip the Gutenberg
-    // HTML (inline styles, custom divs) just because REST has no WP user.
-    kses_remove_filters();
+    // kses stays ON by default so the key cannot store <script>. Sites that
+    // need raw Gutenberg HTML can opt in with GENAI_MCP_ALLOW_UNFILTERED_HTML.
+    $unfiltered = apl_unfiltered_html_enabled();
+    if ($unfiltered) kses_remove_filters();
     $postarr = wp_slash($postarr);
-    $result = $is_update ? wp_update_post($postarr, true) : wp_insert_post($postarr, true);
-    kses_init_filters();
+    try {
+        $result = $is_update ? wp_update_post($postarr, true) : wp_insert_post($postarr, true);
+    } finally {
+        if ($unfiltered) kses_init_filters();
+    }
 
     if (is_wp_error($result)) {
         return new WP_Error('publish_failed', $result->get_error_message(), ['status' => 500]);
@@ -341,7 +393,7 @@ function apl_route_delete_post(WP_REST_Request $request) {
     $p = $request->get_json_params();
     $post_id = isset($p['post_id']) ? (int) $p['post_id'] : 0;
     if (!$post_id) return new WP_Error('missing_post_id', 'post_id is required', ['status' => 400]);
-    if (!get_post($post_id)) return new WP_Error('post_not_found', "Post {$post_id} not found", ['status' => 404]);
+    if (!get_post($post_id) || get_post_type($post_id) !== 'post') return new WP_Error('post_not_found', "Post {$post_id} not found", ['status' => 404]);
 
     $force = !isset($p['force']) || (bool) $p['force'];
     $deleted = wp_delete_post($post_id, $force);
@@ -403,18 +455,22 @@ function apl_route_media_sideload(WP_REST_Request $request) {
 
     apl_require_media_includes();
 
+    if (!apl_url_is_public($url)) {
+        return new WP_Error('invalid_url', 'url must be a public http(s) address', ['status' => 400]);
+    }
+
     $tmp = download_url($url, 60);
     if (is_wp_error($tmp)) {
         // Error code "download_failed" is load-bearing: the backend matches on
         // it to trigger a proxy retry. Keep it.
-        return new WP_Error('download_failed', 'Failed to download image: ' . $tmp->get_error_message(), ['status' => 500]);
+        return new WP_Error('download_failed', 'Failed to download image', ['status' => 500]);
     }
 
     $file_array = ['name' => apl_sideload_filename($url, $tmp), 'tmp_name' => $tmp];
     $attachment_id = media_handle_sideload($file_array, $post_id ?: 0);
     if (is_wp_error($attachment_id)) {
         @unlink($tmp);
-        return new WP_Error('sideload_failed', 'media_handle_sideload failed: ' . $attachment_id->get_error_message(), ['status' => 500]);
+        return new WP_Error('sideload_failed', 'media_handle_sideload failed (unsupported or invalid image)', ['status' => 500]);
     }
     if ($alt !== '') {
         update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
@@ -439,7 +495,7 @@ function apl_route_media_upload_binary(WP_REST_Request $request) {
 
     $attachment_id = media_handle_upload('file', $post_id);
     if (is_wp_error($attachment_id)) {
-        return new WP_Error('upload_failed', 'media_handle_upload failed: ' . $attachment_id->get_error_message(), ['status' => 500]);
+        return new WP_Error('upload_failed', 'media_handle_upload failed (unsupported or invalid image)', ['status' => 500]);
     }
     if ($alt !== '') {
         update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt);
@@ -623,8 +679,8 @@ function apl_route_media_package_nextgen(WP_REST_Request $request) {
     }
 
     $zip_dir = $base . '/_nextgen_backup';
-    if (!is_dir($zip_dir)) wp_mkdir_p($zip_dir);
-    $zip_name = 'batch_' . $offset . '_' . $limit . '.zip';
+    apl_protect_dir($zip_dir);
+    $zip_name = 'batch_' . $offset . '_' . $limit . '_' . wp_generate_password(16, false) . '.zip';
     $zip_path = $zip_dir . '/' . $zip_name;
 
     $zip = new ZipArchive();
@@ -803,8 +859,8 @@ function apl_route_media_package_unused_sizes(WP_REST_Request $request) {
     }
 
     $zip_dir = $base . '/_unused_sizes_backup';
-    if (!is_dir($zip_dir)) wp_mkdir_p($zip_dir);
-    $zip_name = 'batch_' . $offset . '_' . $limit . '.zip';
+    apl_protect_dir($zip_dir);
+    $zip_name = 'batch_' . $offset . '_' . $limit . '_' . wp_generate_password(16, false) . '.zip';
     $zip_path = $zip_dir . '/' . $zip_name;
 
     $zip = new ZipArchive();
@@ -1152,21 +1208,21 @@ function apl_route_media_wp_content_usage() {
 function apl_route_media_db_size() {
     global $wpdb;
     $db_name = DB_NAME;
+    $like = $wpdb->esc_like($wpdb->prefix) . '%';
     $rows = $wpdb->get_results($wpdb->prepare(
         "SELECT table_name AS tbl, ROUND((data_length + index_length) / 1048576, 2) AS size_mb, table_rows AS row_count
          FROM information_schema.tables
-         WHERE table_schema = %s
+         WHERE table_schema = %s AND table_name LIKE %s
          ORDER BY (data_length + index_length) DESC
          LIMIT 30",
-        $db_name
+        $db_name, $like
     ));
     $total = $wpdb->get_var($wpdb->prepare(
         "SELECT ROUND(SUM(data_length + index_length) / 1048576, 2)
-         FROM information_schema.tables WHERE table_schema = %s",
-        $db_name
+         FROM information_schema.tables WHERE table_schema = %s AND table_name LIKE %s",
+        $db_name, $like
     ));
     return [
-        'db_name' => $db_name,
         'total_mb' => (float) $total,
         'total_gb' => round(((float) $total) / 1024, 3),
         'largest_tables' => $rows,
@@ -1230,8 +1286,8 @@ function apl_route_media_package_old_sizes(WP_REST_Request $request) {
     if (empty($ids)) return ['done' => true, 'offset' => $offset];
 
     $zip_dir = $base . '/_old_sizes_backup';
-    if (!is_dir($zip_dir)) wp_mkdir_p($zip_dir);
-    $zip_name = 'batch_' . $offset . '_' . $limit . '.zip';
+    apl_protect_dir($zip_dir);
+    $zip_name = 'batch_' . $offset . '_' . $limit . '_' . wp_generate_password(16, false) . '.zip';
     $zip_path = $zip_dir . '/' . $zip_name;
 
     $zip = new ZipArchive();
@@ -1363,8 +1419,8 @@ function apl_route_media_package_explicit_sizes(WP_REST_Request $request) {
     if (empty($slice)) return ['done' => true, 'offset' => $offset];
 
     $zip_dir = $base . '/_explicit_sizes_backup';
-    if (!is_dir($zip_dir)) wp_mkdir_p($zip_dir);
-    $zip_name = 'batch_' . $offset . '_' . $limit . '.zip';
+    apl_protect_dir($zip_dir);
+    $zip_name = 'batch_' . $offset . '_' . $limit . '_' . wp_generate_password(16, false) . '.zip';
     $zip_path = $zip_dir . '/' . $zip_name;
 
     $zip = new ZipArchive();
@@ -1615,8 +1671,10 @@ function apl_route_media_restore_file(WP_REST_Request $request) {
     }
 
     // Never write server-side executables or server config into the uploads directory.
-    if (preg_match('/\.(php\d?|phtml|phar|pht|phps|shtml|cgi|pl|py|sh|htaccess|htpasswd|ini)$/i', basename($rel))) {
-        return new WP_Error('invalid_path', 'executable and config file types are not allowed', ['status' => 400]);
+    // Allowlist: only image files, and never a name containing an executable extension anywhere.
+    $bn = basename($rel);
+    if (!preg_match('/\.(jpe?g|png|gif|webp|avif)$/i', $bn) || preg_match('/\.(php|phtml|phar|pht|phps|shtml|cgi|pl|py|sh|asp|aspx|jsp|inc|htaccess|htpasswd|ini|conf)(\.|$)/i', $bn) || strtolower($bn) === 'web.config') {
+        return new WP_Error('invalid_path', 'only image files (jpg, png, gif, webp, avif) can be restored', ['status' => 400]);
     }
 
     $upload_dir = wp_upload_dir();
@@ -1633,6 +1691,9 @@ function apl_route_media_restore_file(WP_REST_Request $request) {
     $bytes = base64_decode($content_b64, true);
     if ($bytes === false) {
         return new WP_Error('bad_base64', 'content_base64 could not be decoded', ['status' => 400]);
+    }
+    if (!@getimagesizefromstring($bytes)) {
+        return new WP_Error('invalid_content', 'content is not a valid image', ['status' => 400]);
     }
     $written = file_put_contents($target, $bytes);
     if ($written === false) {
@@ -1885,12 +1946,20 @@ function apl_route_term_meta(WP_REST_Request $request) {
         return new WP_Error('missing_fields', 'term_id and meta object are required', ['status' => 400]);
     }
     $term = get_term($term_id);
+    if ($term && !is_wp_error($term) && !in_array($term->taxonomy, ['category', 'post_tag'], true)) {
+        return new WP_Error('taxonomy_not_allowed', 'only category and post_tag terms can be changed', ['status' => 400]);
+    }
     if (!$term || is_wp_error($term)) {
         return new WP_Error('term_not_found', "Term {$term_id} not found", ['status' => 404]);
     }
     $written = [];
     foreach ($meta as $key => $value) {
         $key = sanitize_key($key);
+        // Allowlist: cover-image keys and Yoast keys. Extend with the genai_mcp_term_meta_keys filter.
+        $allowed = apply_filters('genai_mcp_term_meta_keys', ['z_taxonomy_image', 'z_taxonomy_image_id']);
+        if (!in_array($key, $allowed, true) && strpos($key, 'wpseo_') !== 0) {
+            return new WP_Error('meta_key_not_allowed', "meta key '{$key}' is not allowed", ['status' => 400]);
+        }
         update_term_meta($term_id, $key, (string) $value);
         $written[] = $key;
     }
@@ -1898,11 +1967,11 @@ function apl_route_term_meta(WP_REST_Request $request) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// /authors — list users (all roles, unlike public /wp/v2/users)
+// /authors — list users (users who can edit posts)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function apl_route_authors() {
-    $users = get_users(['number' => 200, 'orderby' => 'ID', 'order' => 'ASC']);
+    $users = get_users(['number' => 200, 'orderby' => 'ID', 'order' => 'ASC', 'capability' => ['edit_posts']]);
     $out = [];
     foreach ($users as $u) {
         $out[] = [
@@ -1910,11 +1979,6 @@ function apl_route_authors() {
             'name'         => $u->display_name,
             'display_name' => $u->display_name,
             'slug'         => $u->user_nicename,
-            'avatar_urls'  => [
-                '24' => get_avatar_url($u->ID, ['size' => 24]),
-                '48' => get_avatar_url($u->ID, ['size' => 48]),
-                '96' => get_avatar_url($u->ID, ['size' => 96]),
-            ],
         ];
     }
     return $out;
