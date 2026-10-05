@@ -186,6 +186,47 @@ Example tool input schema for `wp_publish_post`:
 
 Keep the API key in the MCP server's environment (never in prompts or in the model's context), and prefer creating `draft` posts so a human reviews before publishing.
 
+## Claude setup
+
+### Option A — Claude Code (works today, no MCP server needed)
+
+1. **Install the plugin and set the API key** on WordPress (see [Installation](#installation)).
+2. **Give Claude the credentials through environment variables** (never paste the key into a chat or prompt). In the shell where you start Claude Code:
+   ```bash
+   export WP_URL="https://your-site.example"
+   export WP_API_KEY="your-long-random-key"
+   ```
+   To make it permanent, put the two `export` lines in `~/.zshrc` / `~/.bashrc` (or use a `.env` file that is git-ignored).
+3. **Copy the helper script** into your project:
+   ```bash
+   mkdir -p tools && cp examples/claude-code/wp.sh tools/wp.sh && chmod +x tools/wp.sh
+   tools/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+   ```
+   Commands: `validate`, `publish post.json`, `sideload <image-url> [alt]`, `categories`, `term-meta meta.json`, `delete <post_id>`.
+4. **Teach Claude the rules** — append [`examples/claude-code/CLAUDE.md.snippet`](examples/claude-code/CLAUDE.md.snippet) to your project's `CLAUDE.md`. It tells Claude to use the helper, never print the key, always create drafts first, and ask before publishing or deleting. (Edit the helper path in the snippet if you copied it somewhere else.)
+5. **Try it.** Start `claude` in the project and ask, for example:
+   > Write a draft post "Kyoto in Autumn", category "Japan > Kyoto", then publish it as a draft with `tools/wp.sh` and show me the result.
+
+   Claude writes a JSON file, runs `tools/wp.sh publish`, and reports the returned `post_url`. Review the draft in WordPress, then tell Claude to publish.
+
+> Tip: in Claude Code, allow only the helper script (for example the permission rule `Bash(tools/wp.sh:*)`) so every other command still asks first.
+
+### Option B — MCP server (Claude Desktop, Claude Code, other MCP clients)
+
+This repository does **not** ship an MCP server yet. If you build one (or use a generic REST-to-MCP bridge), wrap the endpoints as tools (see [Using it with MCP / AI agents](#using-it-with-mcp--ai-agents)) and register it in the client, for example in `claude_desktop_config.json` or via `claude mcp add`:
+
+```json
+{
+  "mcpServers": {
+    "wordpress": {
+      "command": "node",
+      "args": ["/path/to/your/wordpress-mcp-server.js"],
+      "env": { "WP_URL": "https://your-site.example", "WP_API_KEY": "your-long-random-key" }
+    }
+  }
+}
+```
+
 ## Configuration constants
 
 Define in `wp-config.php`:

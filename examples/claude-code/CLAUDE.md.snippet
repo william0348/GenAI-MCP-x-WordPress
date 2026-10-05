@@ -1,0 +1,14 @@
+## WordPress publishing (GenAI MCP x WordPress)
+
+Publish to WordPress through the REST bridge, using the helper `examples/claude-code/wp.sh`
+(or plain curl). The site URL and key are in the environment: `WP_URL`, `WP_API_KEY`.
+
+Rules:
+- NEVER print, log, echo or write `WP_API_KEY` anywhere (not in files, commits or replies).
+- Always create posts with `"status": "draft"`. Publish (`"status": "publish"`) only when the user says so.
+- Before publishing, show the user the title, slug, categories and a short summary and wait for approval.
+- Use category paths like `"Japan > Kyoto"` (missing levels are created automatically).
+- To update a post, send its `post_id`; only the fields you send change.
+- Never call `/delete` or any `/media/*` delete endpoint unless the user explicitly asks.
+- Upload images with `wp.sh sideload <url> "<alt text>"`, then pass the returned `id` as `featured_media`.
+- Verify the site first with `wp.sh validate` (expects `{"valid":true,...}`).

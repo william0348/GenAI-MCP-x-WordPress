@@ -186,6 +186,47 @@ curl -s -X POST https://你的網站/wp-json/article-publisher/v1/media/sideload
 
 API 金鑰請放在 MCP 伺服器的環境變數中（不要放進提示詞或模型能看到的內容），並且建議先建立 `draft` 草稿，由人工確認後再發布。
 
+## Claude 端設定
+
+### 做法 A：Claude Code（現在就能用，不需要 MCP 伺服器）
+
+1. **在 WordPress 安裝外掛並設定 API 金鑰**（見[安裝](#安裝)）。
+2. **用環境變數把網址和金鑰交給 Claude**（不要把金鑰貼進對話或提示詞）。在啟動 Claude Code 的終端機裡：
+   ```bash
+   export WP_URL="https://你的網站"
+   export WP_API_KEY="你的長隨機金鑰"
+   ```
+   想要永久生效，就把這兩行寫進 `~/.zshrc`／`~/.bashrc`（或用已加入 `.gitignore` 的 `.env` 檔）。
+3. **把輔助腳本複製到你的專案**：
+   ```bash
+   mkdir -p tools && cp examples/claude-code/wp.sh tools/wp.sh && chmod +x tools/wp.sh
+   tools/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+   ```
+   指令：`validate`、`publish post.json`、`sideload <圖片網址> [替代文字]`、`categories`、`term-meta meta.json`、`delete <post_id>`。
+4. **教 Claude 遵守規則**：把 [`examples/claude-code/CLAUDE.md.snippet`](examples/claude-code/CLAUDE.md.snippet) 的內容附加到專案的 `CLAUDE.md`。它會要求 Claude 使用這支腳本、不要印出金鑰、一律先建草稿、發布或刪除前先問你。（如果腳本放在別的路徑，記得修改範本裡的路徑。）
+5. **試一次。** 在專案裡啟動 `claude`，例如說：
+   > 幫我寫一篇「京都秋季旅遊」草稿，分類「日本 > 京都」，用 `tools/wp.sh` 建成草稿，並把結果給我看。
+
+   Claude 會寫出 JSON 檔、執行 `tools/wp.sh publish`，並回報回傳的 `post_url`。你到 WordPress 檢查草稿，確認後再叫 Claude 發布。
+
+> 小技巧：在 Claude Code 裡只允許這支腳本（例如權限規則 `Bash(tools/wp.sh:*)`），其他指令仍然會先詢問你。
+
+### 做法 B：MCP 伺服器（Claude Desktop、Claude Code、其他 MCP 用戶端）
+
+這個專案**目前沒有附 MCP 伺服器**。如果你自己做一個（或用通用的 REST 轉 MCP 橋接工具），把端點包成工具（見[搭配 MCP／AI 代理使用](#搭配-mcpai-代理使用)），再到用戶端註冊，例如寫在 `claude_desktop_config.json`，或用 `claude mcp add`：
+
+```json
+{
+  "mcpServers": {
+    "wordpress": {
+      "command": "node",
+      "args": ["/路徑/你的-wordpress-mcp-server.js"],
+      "env": { "WP_URL": "https://你的網站", "WP_API_KEY": "你的長隨機金鑰" }
+    }
+  }
+}
+```
+
 ## 設定常數
 
 寫在 `wp-config.php`：
