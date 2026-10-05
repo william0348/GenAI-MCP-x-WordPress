@@ -40,13 +40,8 @@
 
 1. 下載此專案，把 `genai-mcp-x-wordpress/` 資料夾複製到 `wp-content/plugins/`；或把該資料夾壓成 zip，從 **外掛 → 安裝外掛 → 上傳外掛** 安裝。
 2. 啟用 **GenAI MCP x WordPress**。
-3. 設定 API 金鑰，二選一：
-   - **設定 → GenAI MCP x WordPress**，或
-   - 寫在 `wp-config.php`（建議；會覆蓋設定頁的值）：
-     ```php
-     define('ARTICLE_PUBLISHER_API_KEY', '換成一長串隨機字串');
-     ```
-   可以用 `openssl rand -hex 32` 產生。
+3. 複製 API 金鑰：啟用外掛時**已自動產生**。到 **設定 → GenAI MCP x WordPress** 複製即可（按「Generate new key」再儲存可更換）。
+   *（進階、非必要：在 `wp-config.php` 定義 `ARTICLE_PUBLISHER_API_KEY`，可讓金鑰不存在資料庫；它會覆蓋設定頁的值。）*
 4. 驗證：
    ```bash
    curl -s -H "X-API-Key: 你的金鑰" https://你的網站/wp-json/article-publisher/v1/validate

@@ -40,13 +40,8 @@ It was extracted from a production content pipeline that has published several h
 
 1. Download this repo (or the release zip) and copy the `genai-mcp-x-wordpress/` folder to `wp-content/plugins/`, or zip that folder and use **Plugins → Add New → Upload Plugin**.
 2. Activate **GenAI MCP x WordPress**.
-3. Set an API key — either:
-   - **Settings → GenAI MCP x WordPress**, or
-   - in `wp-config.php` (recommended; this overrides the settings field):
-     ```php
-     define('ARTICLE_PUBLISHER_API_KEY', 'put-a-long-random-string-here');
-     ```
-   Generate one with `openssl rand -hex 32`.
+3. Copy your API key: it was **generated automatically on activation**. Open **Settings → GenAI MCP x WordPress** and copy it (click "Generate new key" and Save to rotate it).
+   *(Advanced, optional: define `ARTICLE_PUBLISHER_API_KEY` in `wp-config.php` to keep the key out of the database; it overrides the settings field.)*
 4. Verify:
    ```bash
    curl -s -H "X-API-Key: YOUR_KEY" https://your-site.example/wp-json/article-publisher/v1/validate
