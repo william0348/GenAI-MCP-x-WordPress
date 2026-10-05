@@ -59,7 +59,38 @@
 
 每個端點都要帶標頭 `X-API-Key: <金鑰>`。金鑰缺少或錯誤回 `401`。如果網站還沒設定金鑰，所有呼叫也都回 `401`（外掛預設是關閉的）。
 
-## 快速開始
+## 快速開始（搭配 Claude）
+
+Claude 自己並不知道這個 API 怎麼用，需要先安裝一個 **Skill** 把用法教給它，之後你只要直接跟它說話就好。
+
+1. **在 WordPress 安裝外掛並設定 API 金鑰**：見[安裝](#安裝)。
+2. **為 Claude Code 安裝 Skill**（每台電腦裝一次）：
+   ```bash
+   git clone https://github.com/william0348/GenAI-MCP-x-WordPress.git
+   mkdir -p ~/.claude/skills
+   cp -r GenAI-MCP-x-WordPress/skills/wordpress-publish ~/.claude/skills/
+   chmod +x ~/.claude/skills/wordpress-publish/scripts/wp.sh
+   ```
+   （只想在某個專案使用的話，改複製到 `<你的專案>/.claude/skills/`。）
+3. **用環境變數把網站和金鑰交給 Claude**（不要把金鑰貼進對話）。在啟動 Claude Code 的終端機裡：
+   ```bash
+   export WP_URL="https://你的網站"
+   export WP_API_KEY="你的長隨機金鑰"
+   claude
+   ```
+4. **直接用白話文下指令**，例如：
+   > 幫我寫一篇「京都秋季旅遊」草稿，分類放在 日本 > 京都，並發布到我的 WordPress 當草稿。
+
+   Claude 會載入 `wordpress-publish` 這個 Skill、檢查連線、建立草稿並把連結給你。你到 WordPress 檢查後，再叫 Claude 發布。
+
+Skill 會讓 Claude：一律**先建草稿**、發布前先問你；不印出 API 金鑰；沒有你明確要求就不刪除、不執行維護端點；出錯時把錯誤告訴你，不會盲目重試。想看（或修改）完整規則，請讀 [`skills/wordpress-publish/SKILL.md`](skills/wordpress-publish/SKILL.md)。
+
+> **任何人想搭配 Claude 使用，都必須先安裝這個 Skill**（步驟 2）。沒有安裝的話，Claude 沒有任何關於這個 API 的說明。Skill 是為 **Claude Code** 設計的，因為它會在本機執行腳本並讀取你的環境變數。
+
+### 手動 API 範例（給開發者與其他工具）
+
+用 Claude 搭配 Skill 的時候不需要這些。它們是給腳本、其他 AI 框架或除錯用的。
+
 
 發布一篇草稿（含階層分類、標籤、SEO）：
 
@@ -188,28 +219,17 @@ API 金鑰請放在 MCP 伺服器的環境變數中（不要放進提示詞或�
 
 ## Claude 端設定
 
-### 做法 A：Claude Code（現在就能用，不需要 MCP 伺服器）
+### 做法 A：Claude Code ＋ Skill（現在就能用，不需要 MCP 伺服器）
 
-1. **在 WordPress 安裝外掛並設定 API 金鑰**（見[安裝](#安裝)）。
-2. **用環境變數把網址和金鑰交給 Claude**（不要把金鑰貼進對話或提示詞）。在啟動 Claude Code 的終端機裡：
-   ```bash
-   export WP_URL="https://你的網站"
-   export WP_API_KEY="你的長隨機金鑰"
-   ```
-   想要永久生效，就把這兩行寫進 `~/.zshrc`／`~/.bashrc`（或用已加入 `.gitignore` 的 `.env` 檔）。
-3. **把輔助腳本複製到你的專案**：
-   ```bash
-   mkdir -p tools && cp examples/claude-code/wp.sh tools/wp.sh && chmod +x tools/wp.sh
-   tools/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
-   ```
-   指令：`validate`、`publish post.json`、`sideload <圖片網址> [替代文字]`、`categories`、`term-meta meta.json`、`delete <post_id>`。
-4. **教 Claude 遵守規則**：把 [`examples/claude-code/CLAUDE.md.snippet`](examples/claude-code/CLAUDE.md.snippet) 的內容附加到專案的 `CLAUDE.md`。它會要求 Claude 使用這支腳本、不要印出金鑰、一律先建草稿、發布或刪除前先問你。（如果腳本放在別的路徑，記得修改範本裡的路徑。）
-5. **試一次。** 在專案裡啟動 `claude`，例如說：
-   > 幫我寫一篇「京都秋季旅遊」草稿，分類「日本 > 京都」，用 `tools/wp.sh` 建成草稿，並把結果給我看。
+照[快速開始](#快速開始搭配-claude)做：安裝外掛、安裝 `wordpress-publish` Skill、設定 `WP_URL` 與 `WP_API_KEY`，然後請 Claude 發布。
 
-   Claude 會寫出 JSON 檔、執行 `tools/wp.sh publish`，並回報回傳的 `post_url`。你到 WordPress 檢查草稿，確認後再叫 Claude 發布。
+可選的加強：在 Claude Code 只允許這支輔助腳本，例如權限規則 `Bash(~/.claude/skills/wordpress-publish/scripts/wp.sh:*)`，其他指令仍然會先詢問你。這支腳本也能單獨使用：
 
-> 小技巧：在 Claude Code 裡只允許這支腳本（例如權限規則 `Bash(tools/wp.sh:*)`），其他指令仍然會先詢問你。
+```bash
+~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+```
+
+指令：`validate`、`publish post.json`、`sideload <圖片網址> [替代文字]`、`categories`、`term-meta meta.json`、`delete <post_id>`。
 
 ### 做法 B：MCP 伺服器（Claude Desktop、Claude Code、其他 MCP 用戶端）
 

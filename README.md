@@ -59,7 +59,38 @@ It was extracted from a production content pipeline that has published several h
 
 Every endpoint requires the header `X-API-Key: <key>`. A missing or wrong key returns `401`. If no key is configured, every call returns `401` (the plugin is closed by default).
 
-## Quick start
+## Quick start (with Claude)
+
+Claude does not know this API by itself — you give it a **Skill** that teaches it how to publish. After that you just talk to it.
+
+1. **Install the plugin on WordPress and set the API key** — see [Installation](#installation).
+2. **Install the Skill for Claude Code** (once per computer):
+   ```bash
+   git clone https://github.com/william0348/GenAI-MCP-x-WordPress.git
+   mkdir -p ~/.claude/skills
+   cp -r GenAI-MCP-x-WordPress/skills/wordpress-publish ~/.claude/skills/
+   chmod +x ~/.claude/skills/wordpress-publish/scripts/wp.sh
+   ```
+   (To use it only in one project, copy the folder to `<your-project>/.claude/skills/` instead.)
+3. **Give Claude the site and key through environment variables** (never paste the key into a chat). In the terminal where you start Claude Code:
+   ```bash
+   export WP_URL="https://your-site.example"
+   export WP_API_KEY="your-long-random-key"
+   claude
+   ```
+4. **Ask in plain language**, for example:
+   > Write a draft article "Kyoto in Autumn" in the category Japan > Kyoto and publish it to my WordPress as a draft.
+
+   Claude loads the `wordpress-publish` skill, checks the connection, creates the draft and gives you the link. Review it in WordPress, then tell Claude to publish.
+
+What the Skill makes Claude do: always create **drafts first** and ask before publishing, never print the API key, never delete or run maintenance endpoints unless you explicitly ask, and show you the error instead of retrying blindly. Read [`skills/wordpress-publish/SKILL.md`](skills/wordpress-publish/SKILL.md) to see (or change) the exact rules.
+
+> **Anyone who wants to use this with Claude must install the Skill** (step 2). Without it Claude has no instructions for the API. The Skill targets **Claude Code** because it runs a local shell script with your environment variables.
+
+### Manual API examples (for developers and other tools)
+
+You do not need these when using Claude with the Skill. They are for scripts, other AI frameworks or debugging.
+
 
 Publish a draft with hierarchical categories, tags and SEO:
 
@@ -188,28 +219,17 @@ Keep the API key in the MCP server's environment (never in prompts or in the mod
 
 ## Claude setup
 
-### Option A — Claude Code (works today, no MCP server needed)
+### Option A — Claude Code + the Skill (works today, no MCP server needed)
 
-1. **Install the plugin and set the API key** on WordPress (see [Installation](#installation)).
-2. **Give Claude the credentials through environment variables** (never paste the key into a chat or prompt). In the shell where you start Claude Code:
-   ```bash
-   export WP_URL="https://your-site.example"
-   export WP_API_KEY="your-long-random-key"
-   ```
-   To make it permanent, put the two `export` lines in `~/.zshrc` / `~/.bashrc` (or use a `.env` file that is git-ignored).
-3. **Copy the helper script** into your project:
-   ```bash
-   mkdir -p tools && cp examples/claude-code/wp.sh tools/wp.sh && chmod +x tools/wp.sh
-   tools/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
-   ```
-   Commands: `validate`, `publish post.json`, `sideload <image-url> [alt]`, `categories`, `term-meta meta.json`, `delete <post_id>`.
-4. **Teach Claude the rules** — append [`examples/claude-code/CLAUDE.md.snippet`](examples/claude-code/CLAUDE.md.snippet) to your project's `CLAUDE.md`. It tells Claude to use the helper, never print the key, always create drafts first, and ask before publishing or deleting. (Edit the helper path in the snippet if you copied it somewhere else.)
-5. **Try it.** Start `claude` in the project and ask, for example:
-   > Write a draft post "Kyoto in Autumn", category "Japan > Kyoto", then publish it as a draft with `tools/wp.sh` and show me the result.
+Follow the [Quick start](#quick-start-with-claude): install the plugin, install the `wordpress-publish` Skill, set `WP_URL` and `WP_API_KEY`, then ask Claude to publish.
 
-   Claude writes a JSON file, runs `tools/wp.sh publish`, and reports the returned `post_url`. Review the draft in WordPress, then tell Claude to publish.
+Optional hardening: in Claude Code allow only the helper script, for example the permission rule `Bash(~/.claude/skills/wordpress-publish/scripts/wp.sh:*)`, so every other command still asks first. The helper can also be used on its own:
 
-> Tip: in Claude Code, allow only the helper script (for example the permission rule `Bash(tools/wp.sh:*)`) so every other command still asks first.
+```bash
+~/.claude/skills/wordpress-publish/scripts/wp.sh validate        # → {"valid":true,"version":"1.0.0"}
+```
+
+Commands: `validate`, `publish post.json`, `sideload <image-url> [alt]`, `categories`, `term-meta meta.json`, `delete <post_id>`.
 
 ### Option B — MCP server (Claude Desktop, Claude Code, other MCP clients)
 
