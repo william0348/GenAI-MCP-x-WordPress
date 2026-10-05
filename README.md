@@ -72,12 +72,18 @@ Claude does not know this API by itself — you give it a **Skill** that teaches
    chmod +x ~/.claude/skills/wordpress-publish/scripts/wp.sh
    ```
    (To use it only in one project, copy the folder to `<your-project>/.claude/skills/` instead.)
-3. **Give Claude the site and key through environment variables** (never paste the key into a chat). In the terminal where you start Claude Code:
+3. **Give Claude the site and key** (never paste the key into a chat). Either put them in a `.env` file in your project folder:
+   ```bash
+   WP_URL=https://your-site.example
+   WP_API_KEY=your-long-random-key
+   ```
+   (add `.env` to `.gitignore`), or export them in the terminal where you start Claude Code:
    ```bash
    export WP_URL="https://your-site.example"
    export WP_API_KEY="your-long-random-key"
    claude
    ```
+   The helper script only reads those two lines from `.env`; it never executes the file. Variables already exported win over `.env`.
 4. **Ask in plain language**, for example:
    > Write a draft article "Kyoto in Autumn" in the category Japan > Kyoto and publish it to my WordPress as a draft.
 

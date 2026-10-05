@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `wp.sh` also reads `WP_URL` / `WP_API_KEY` from a `.env` file in the current directory (parsed, never executed).
+
 ## 1.0.1 — security hardening
 
 Found in a security review of 1.0.0. Upgrade recommended.

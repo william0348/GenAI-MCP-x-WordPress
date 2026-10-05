@@ -72,12 +72,18 @@ Claude 自己並不知道這個 API 怎麼用，需要先安裝一個 **Skill** 
    chmod +x ~/.claude/skills/wordpress-publish/scripts/wp.sh
    ```
    （只想在某個專案使用的話，改複製到 `<你的專案>/.claude/skills/`。）
-3. **用環境變數把網站和金鑰交給 Claude**（不要把金鑰貼進對話）。在啟動 Claude Code 的終端機裡：
+3. **把網站和金鑰交給 Claude**（不要把金鑰貼進對話）。可以放在專案資料夾的 `.env` 檔：
+   ```bash
+   WP_URL=https://你的網站
+   WP_API_KEY=你的長隨機金鑰
+   ```
+   （記得把 `.env` 加進 `.gitignore`），或在啟動 Claude Code 的終端機裡用環境變數：
    ```bash
    export WP_URL="https://你的網站"
    export WP_API_KEY="你的長隨機金鑰"
    claude
    ```
+   輔助腳本只會讀 `.env` 裡這兩行，不會執行整個檔案；已經 export 的變數優先於 `.env`。
 4. **直接用白話文下指令**，例如：
    > 幫我寫一篇「京都秋季旅遊」草稿，分類放在 日本 > 京都，並發布到我的 WordPress 當草稿。
 

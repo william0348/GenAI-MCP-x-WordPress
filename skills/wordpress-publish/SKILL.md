@@ -9,7 +9,7 @@ You publish through a WordPress plugin's REST API. Use the helper script `script
 
 ## Before anything
 
-1. The environment must have `WP_URL` (e.g. `https://example.com`) and `WP_API_KEY`. **Never print, echo, log or write the key anywhere** (files, commits, replies). If a variable is missing, tell the user which one to set — do not ask them to paste the key into the chat.
+1. `WP_URL` (e.g. `https://example.com`) and `WP_API_KEY` must be set, either exported in the environment or as lines in a `.env` file in the working directory (the script reads only those two lines). **Never print, echo, log or write the key anywhere** (files, commits, replies). If a variable is missing, tell the user which one to set — do not ask them to paste the key into the chat.
 2. Run `scripts/wp.sh validate`. It must print `{"valid":true,...}`. If it returns 401 the key is wrong or not configured on the site; stop and tell the user.
 
 ## Publishing workflow

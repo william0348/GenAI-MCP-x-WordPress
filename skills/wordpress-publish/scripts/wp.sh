@@ -1,6 +1,9 @@
 #!/bin/bash
 # Tiny curl wrapper around the GenAI MCP x WordPress REST API, for Claude Code (or any shell).
-# Reads WP_URL and WP_API_KEY from the environment — never hard-code the key.
+# Reads WP_URL and WP_API_KEY from the environment, or from a .env file in the current
+# directory (only those two lines are read; the file is never executed). Never hard-code the key.
+#   .env:  WP_URL=https://your-site.example
+#          WP_API_KEY=your-long-random-key
 #
 #   export WP_URL="https://your-site.example"
 #   export WP_API_KEY="your-long-random-key"
@@ -12,6 +15,18 @@
 #   ./wp.sh term-meta meta.json          # {"term_id":123,"meta":{"key":"value"}}
 #   ./wp.sh delete <post_id>             # permanent delete (add "force":false in a JSON body for trash)
 set -euo pipefail
+
+# Pick up WP_URL / WP_API_KEY from ./.env when they are not already exported.
+# Parsed with grep/sed, never `source`d, so nothing else in the file can run.
+if [ -f .env ]; then
+  for var in WP_URL WP_API_KEY; do
+    if [ -z "${!var:-}" ]; then
+      val=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${var}=" .env | tail -1 | sed -E "s/^[^=]*=//; s/^[\"']//; s/[\"'][[:space:]]*\$//" || true)
+      [ -n "$val" ] && export "$var=$val"
+    fi
+  done
+fi
+
 : "${WP_URL:?set WP_URL, e.g. https://your-site.example}"
 : "${WP_API_KEY:?set WP_API_KEY}"
 BASE="${WP_URL%/}/wp-json/article-publisher/v1"
